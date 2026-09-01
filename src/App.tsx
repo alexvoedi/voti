@@ -1,19 +1,45 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { ArrowRight, Check } from 'lucide-react'
 import {
   castFinalVote,
   createLobby,
   eliminate,
+  gamesForPlayers,
   parseGames,
   skipCurrent,
   startRound,
 } from './game/state'
-import type { RoomState } from './game/types'
+import type { Game, RoomState } from './game/types'
+import { Button } from './components/ui/button'
+import { Checkbox } from './components/ui/checkbox'
+import { Input } from './components/ui/input'
 import type { ClientMessage, ServerMessage } from './p2p/protocol'
 import { LOCAL_HOST_PEER_ID, P2PRoom } from './p2p/room'
-import { loadIdentity, makeRoomCode, saveIdentity } from './utils/storage'
+import { loadGames, loadIdentity, makeRoomCode, saveGames, saveIdentity } from './utils/storage'
 
-const defaults = `Pummel Party\nAmong Us\nPhasmophobia\nR.E.P.O.\nGolf with your Friends\nGeoguessr\nPico Park\nLeft 4 Dead\nOverwatch\nCounter-Strike\nMake it Meme\nWitch it`
 const codeFromHash = () => window.location.hash.slice(1).toUpperCase()
+const loadSavedGames = () => {
+  const saved = loadGames('')
+  try {
+    const value: unknown = JSON.parse(saved)
+    if (
+      Array.isArray(value) &&
+      value.every(
+        (game) =>
+          typeof game === 'object' &&
+          game !== null &&
+          typeof game.name === 'string' &&
+          (typeof game.minPlayers === 'number' || game.minPlayers === null) &&
+          (typeof game.maxPlayers === 'number' || game.maxPlayers === null),
+      )
+    ) {
+      return value as Game[]
+    }
+  } catch {
+    // Ältere gespeicherte Textlisten werden weiter unterstützt.
+  }
+  return parseGames(saved)
+}
 const playTurnSound = async (context: AudioContext) => {
   if (context.state === 'suspended') await context.resume()
   const now = context.currentTime
@@ -58,7 +84,8 @@ export function App() {
   const [isHost, setIsHost] = useState(false)
   const [joining, setJoining] = useState(false)
   const [error, setError] = useState('')
-  const [gamesText, setGamesText] = useState(defaults)
+  const [games, setGames] = useState(loadSavedGames)
+  const [filterGamesByPlayers, setFilterGamesByPlayers] = useState(true)
   const [pending, setPending] = useState<string | null>(null)
   const [votedFinalId, setVotedFinalId] = useState<string | null>(null)
   const commitState = (next: RoomState | null) => {
@@ -101,7 +128,7 @@ export function App() {
         createLobby(
           LOCAL_HOST_PEER_ID,
           { id: identity.clientId, name: cleanName },
-          parseGames(defaults),
+          games.filter((game) => game.name.trim()),
         ),
       )
     }
@@ -292,6 +319,10 @@ export function App() {
     commitState(next)
     room?.broadcast({ type: 'STATE', state: next })
   }
+  const updateGames = (nextGames: Game[]) => {
+    setGames(nextGames)
+    saveGames(JSON.stringify(nextGames))
+  }
   const removeParticipant = (participantId: string) => {
     const currentState = stateRef.current
     const participant = currentState?.participants.find((item) => item.id === participantId)
@@ -441,13 +472,21 @@ export function App() {
         <Lobby
           state={state}
           isHost={isHost}
-          gamesText={gamesText}
-          setGamesText={setGamesText}
+          games={games}
+          onGamesChange={updateGames}
           onRemoveParticipant={removeParticipant}
           onStart={() => {
-            const games = parseGames(gamesText)
-            updateHost(startRound({ ...state, originalGames: games, games }))
+            const enteredGames = games.filter((game) => game.name.trim())
+            const selectedGames = filterGamesByPlayers
+              ? gamesForPlayers(
+                  enteredGames,
+                  state.participants.filter((participant) => participant.connected).length,
+                )
+              : enteredGames
+            updateHost(startRound({ ...state, originalGames: selectedGames, games: selectedGames }))
           }}
+          filterGamesByPlayers={filterGamesByPlayers}
+          onFilterGamesByPlayersChange={setFilterGamesByPlayers}
         />
       ) : state.status === 'voting' ? (
         <section>
@@ -474,6 +513,7 @@ export function App() {
               <span className="tie-hint">Bei Gleichstand entscheidet der Zufall.</span>
             </div>
           </div>
+          <ParticipantStrip participants={state.participants} />
           <div className="games">
             {state.games
               .filter((game) => !game.eliminated)
@@ -488,10 +528,13 @@ export function App() {
                     <span className="game-name">{game.name}</span>
                     <small>Für dieses Spiel stimmen</small>
                   </span>
-                  <span className="game-action">✓</span>
+                  <span className="game-action">
+                    <Check size={17} strokeWidth={2.2} />
+                  </span>
                 </button>
               ))}
           </div>
+          <EliminatedGames games={state.games} />
         </section>
       ) : (
         <section>
@@ -511,6 +554,7 @@ export function App() {
               </button>
             )}
           </div>
+          <ParticipantStrip participants={state.participants} />
           <div className="games">
             {state.games
               .filter((g) => !g.eliminated)
@@ -522,30 +566,77 @@ export function App() {
                   onClick={() => eliminateGame(game.id)}
                 >
                   <span className="game-name">{game.name}</span>
-                  <span className="game-action">→</span>
+                  <span className="game-action">
+                    <ArrowRight size={17} strokeWidth={2} />
+                  </span>
                 </button>
               ))}
           </div>
+          <EliminatedGames games={state.games} />
         </section>
       )}
     </main>
   )
 }
+function ParticipantStrip({ participants }: { participants: RoomState['participants'] }) {
+  return (
+    <div className="participant-strip" aria-label="Teilnehmer">
+      <span className="participant-label">DABEI</span>
+      <div className="participant-list">
+        {participants.map((participant) => (
+          <span className="participant-chip" key={participant.id}>
+            <span className={participant.connected ? 'dot' : 'dot off'} />
+            {participant.name}
+          </span>
+        ))}
+      </div>
+    </div>
+  )
+}
+function EliminatedGames({ games }: { games: Game[] }) {
+  const eliminated = games.filter((game) => game.eliminated)
+  if (eliminated.length === 0) return null
+  return (
+    <section className="eliminated-games" aria-label="Bereits ausgeschiedene Spiele">
+      <p className="eyebrow">BEREITS AUSGESCHIEDEN · {eliminated.length}</p>
+      <div className="eliminated-list">
+        {eliminated.map((game) => (
+          <span className="eliminated-game" key={game.id}>
+            <span aria-hidden="true">×</span>
+            {game.name}
+          </span>
+        ))}
+      </div>
+    </section>
+  )
+}
 function Lobby({
   state,
   isHost,
-  gamesText,
-  setGamesText,
+  games,
+  onGamesChange,
+  filterGamesByPlayers,
+  onFilterGamesByPlayersChange,
   onRemoveParticipant,
   onStart,
 }: {
   state: RoomState
   isHost: boolean
-  gamesText: string
-  setGamesText: (value: string) => void
+  games: Game[]
+  onGamesChange: (games: Game[]) => void
+  filterGamesByPlayers: boolean
+  onFilterGamesByPlayersChange: (value: boolean) => void
   onRemoveParticipant: (participantId: string) => void
   onStart: () => void
 }) {
+  const connectedPlayers = state.participants.filter((participant) => participant.connected).length
+  const enteredGames = games.filter((game) => game.name.trim())
+  const matchingGames = filterGamesByPlayers
+    ? gamesForPlayers(enteredGames, connectedPlayers)
+    : enteredGames
+  const updateGame = (id: string, changes: Partial<Game>) => {
+    onGamesChange(games.map((game) => (game.id === id ? { ...game, ...changes } : game)))
+  }
   return (
     <section className="lobby">
       <div className="room-code">
@@ -569,17 +660,99 @@ function Lobby({
       </div>
       {isHost && (
         <>
-          <label>
-            Spiele, je eins pro Zeile
-            <textarea value={gamesText} onChange={(e) => setGamesText(e.target.value)} />
+          <label>Spiele</label>
+          <div className="game-editor">
+            <div className="game-editor-header">
+              <span>Spielname</span>
+              <span>Min.</span>
+              <span>Max.</span>
+              <span />
+            </div>
+            {games.map((game) => (
+              <div className="game-editor-row" key={game.id}>
+                <Input
+                  aria-label="Spielname"
+                  placeholder="Spielname"
+                  value={game.name}
+                  onChange={(e) => updateGame(game.id, { name: e.target.value })}
+                />
+                <Input
+                  aria-label={`Mindestanzahl für ${game.name}`}
+                  type="number"
+                  min="1"
+                  value={game.minPlayers ?? ''}
+                  placeholder="min"
+                  onChange={(e) =>
+                    updateGame(game.id, {
+                      minPlayers: e.target.value ? Math.max(1, Number(e.target.value)) : null,
+                    })
+                  }
+                />
+                <Input
+                  aria-label={`Höchstanzahl für ${game.name}`}
+                  type="number"
+                  min={game.minPlayers ?? 1}
+                  placeholder="max"
+                  value={game.maxPlayers ?? ''}
+                  onChange={(e) => {
+                    const value = e.target.value
+                    updateGame(game.id, {
+                      maxPlayers: value ? Number(value) : null,
+                    })
+                  }}
+                />
+                <Button
+                  variant="ghost"
+                  type="button"
+                  className="remove-player"
+                  aria-label={`${game.name} entfernen`}
+                  title={`${game.name} entfernen`}
+                  onClick={() => onGamesChange(games.filter((item) => item.id !== game.id))}
+                >
+                  ×
+                </Button>
+              </div>
+            ))}
+            <Button
+              type="button"
+              onClick={() =>
+                onGamesChange([
+                  ...games,
+                  {
+                    id: crypto.randomUUID(),
+                    name: '',
+                    minPlayers: null,
+                    maxPlayers: null,
+                    eliminated: false,
+                  },
+                ])
+              }
+            >
+              + Spiel hinzufügen
+            </Button>
+          </div>
+          <p className="hint">
+            Spiele ohne Min. oder Max. gelten als für jede Gruppengröße geeignet.
+          </p>
+          <label className="toggle-row">
+            <Checkbox
+              checked={filterGamesByPlayers}
+              onCheckedChange={(checked) => onFilterGamesByPlayersChange(checked === true)}
+            />
+            Spieleranzahl berücksichtigen
           </label>
           <button
             className="primary"
-            disabled={parseGames(gamesText).length < 2 || state.participants.length < 1}
+            disabled={matchingGames.length < 2 || connectedPlayers < 1}
             onClick={onStart}
           >
-            Runde starten · {parseGames(gamesText).length} Spiele
+            Runde starten · {matchingGames.length} passende Spiele
           </button>
+          {games.length >= 2 && matchingGames.length < 2 && (
+            <p className="error">
+              Für {connectedPlayers} Spieler passen aktuell weniger als zwei Spiele.
+            </p>
+          )}
         </>
       )}
       <p className="hint">Teile den Link, damit weitere Spieler beitreten können.</p>

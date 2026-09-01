@@ -6,23 +6,44 @@ export const slug = (name: string) =>
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '')
 export const parseGames = (text: string): Game[] => {
-  const names: string[] = []
+  const games: Array<{ name: string; minPlayers: number | null; maxPlayers: number | null }> = []
   const seenNames = new Set<string>()
   for (const line of text.split(/\r?\n/)) {
-    const name = line.trim()
+    const [rawName, rawRange] = line.split('|', 2)
+    const name = rawName.trim()
     const key = name.toLocaleLowerCase('de')
     if (!name || seenNames.has(key)) continue
     seenNames.add(key)
-    names.push(name)
+    const range = rawRange?.trim().match(/^(\d*)\s*-\s*(\d*)$/)
+    const minPlayers = range?.[1] ? Number(range[1]) : null
+    const maxPlayers = range?.[2] ? Number(range[2]) : null
+    games.push({ name, minPlayers, maxPlayers })
   }
   const usedIds = new Map<string, number>()
-  return names.map((name, index) => {
-    const base = slug(name) || `spiel-${index + 1}`
+  return games.map((game, index) => {
+    const base = slug(game.name) || `spiel-${index + 1}`
     const occurrence = (usedIds.get(base) ?? 0) + 1
     usedIds.set(base, occurrence)
-    return { id: occurrence === 1 ? base : `${base}-${occurrence}`, name, eliminated: false }
+    return {
+      id: occurrence === 1 ? base : `${base}-${occurrence}`,
+      ...game,
+      eliminated: false,
+    }
   })
 }
+export const gamesForPlayers = (games: Game[], playerCount: number) =>
+  games.filter(
+    (game) =>
+      (game.minPlayers === null || playerCount >= game.minPlayers) &&
+      (game.maxPlayers === null || playerCount <= game.maxPlayers),
+  )
+export const serializeGames = (games: Game[]) =>
+  games
+    .map((game) => {
+      if (game.minPlayers === null && game.maxPlayers === null) return game.name
+      return `${game.name} | ${game.minPlayers ?? ''}-${game.maxPlayers ?? ''}`
+    })
+    .join('\n')
 export const createLobby = (
   hostPeerId: string,
   host: { id: string; name: string },

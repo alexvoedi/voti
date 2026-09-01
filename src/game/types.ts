@@ -9,6 +9,8 @@ export interface Participant {
 export interface Game {
   id: string
   name: string
+  minPlayers: number | null
+  maxPlayers: number | null
   eliminated: boolean
 }
 export interface RoomState {

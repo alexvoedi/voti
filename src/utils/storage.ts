@@ -1,4 +1,9 @@
-const keys = { client: 'voti-client-id', name: 'voti-name', room: 'voti-room' } as const
+const keys = {
+  client: 'voti-client-id',
+  name: 'voti-name',
+  room: 'voti-room',
+  games: 'voti-games',
+} as const
 const makeId = () => crypto.randomUUID()
 export const loadIdentity = () => ({
   clientId: sessionStorage.getItem(keys.client) ?? makeId(),
@@ -10,6 +15,8 @@ export const saveIdentity = (clientId: string, name: string, roomCode: string) =
   localStorage.setItem(keys.name, name)
   localStorage.setItem(keys.room, roomCode)
 }
+export const loadGames = (fallback: string) => localStorage.getItem(keys.games) ?? fallback
+export const saveGames = (games: string) => localStorage.setItem(keys.games, games)
 export const clearRoom = () => localStorage.removeItem(keys.room)
 export const makeRoomCode = () =>
   Array.from(
