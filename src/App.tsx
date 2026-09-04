@@ -322,6 +322,15 @@ export function App() {
   const updateGames = (nextGames: Game[]) => {
     setGames(nextGames)
     saveGames(JSON.stringify(nextGames))
+    const currentState = stateRef.current
+    if (isHost && currentState?.status === 'lobby') {
+      updateHost({
+        ...currentState,
+        games: nextGames,
+        originalGames: nextGames,
+        version: currentState.version + 1,
+      })
+    }
   }
   const removeParticipant = (participantId: string) => {
     const currentState = stateRef.current
@@ -472,7 +481,7 @@ export function App() {
         <Lobby
           state={state}
           isHost={isHost}
-          games={games}
+          games={isHost ? games : state.games}
           onGamesChange={updateGames}
           onRemoveParticipant={removeParticipant}
           onStart={() => {
@@ -753,6 +762,32 @@ function Lobby({
               Für {connectedPlayers} Spieler passen aktuell weniger als zwei Spiele.
             </p>
           )}
+        </>
+      )}
+      {!isHost && (
+        <>
+          <label>Spieleauswahl</label>
+          <div className="game-editor lobby-game-list">
+            {matchingGames.length > 0 ? (
+              matchingGames.map((game) => (
+                <div className="game-editor-row lobby-game-row" key={game.id}>
+                  <span>{game.name}</span>
+                  {(game.minPlayers !== null || game.maxPlayers !== null) && (
+                    <small>
+                      {game.minPlayers !== null && game.maxPlayers !== null
+                        ? `${game.minPlayers}-${game.maxPlayers}`
+                        : game.minPlayers !== null
+                          ? `ab ${game.minPlayers}`
+                          : `bis ${game.maxPlayers}`}{' '}
+                      Spieler
+                    </small>
+                  )}
+                </div>
+              ))
+            ) : (
+              <p className="hint">Der Host hat noch keine Spiele ausgewählt.</p>
+            )}
+          </div>
         </>
       )}
       <p className="hint">Teile den Link, damit weitere Spieler beitreten können.</p>

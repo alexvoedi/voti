@@ -347,6 +347,23 @@ em {
   display: grid;
   gap: 0.35rem;
 }
+.lobby-game-list {
+  gap: 0;
+}
+.lobby .lobby-game-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 1rem;
+  padding: 0.45rem 0;
+  border-bottom: 1px solid var(--line);
+}
+.lobby .lobby-game-row:last-child {
+  border-bottom: 0;
+}
+.lobby .lobby-game-row small {
+  max-width: none;
+  white-space: nowrap;
+  text-align: right;
+}
 .game-editor-header,
 .game-editor-row {
   display: grid;
