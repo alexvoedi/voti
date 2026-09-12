@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowRight, Check } from 'lucide-react'
+import { ArrowDownToLine, ArrowRight, ArrowUpFromLine, Check } from 'lucide-react'
 import {
   castFinalVote,
   createLobby,
@@ -39,6 +39,56 @@ const loadSavedGames = () => {
     // Ältere gespeicherte Textlisten werden weiter unterstützt.
   }
   return parseGames(saved)
+}
+const exportGames = (games: Game[]) => {
+  const payload = {
+    format: 'voti-games',
+    version: 1,
+    games: games
+      .filter((game) => game.name.trim())
+      .map(({ name, minPlayers, maxPlayers }) => ({ name, minPlayers, maxPlayers })),
+  }
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `voti-spiele-${new Date().toISOString().slice(0, 10)}.json`
+  link.click()
+  URL.revokeObjectURL(url)
+}
+const parseImportedGames = (text: string): Game[] => {
+  const value: unknown = JSON.parse(text)
+  const entries =
+    typeof value === 'object' && value !== null && 'games' in value
+      ? (value as { games: unknown }).games
+      : value
+  if (!Array.isArray(entries)) throw new Error('Die Datei enthält keine Spieleliste.')
+  const games = entries.map((entry, index) => {
+    if (
+      typeof entry !== 'object' ||
+      entry === null ||
+      !('name' in entry) ||
+      typeof entry.name !== 'string'
+    ) {
+      throw new Error(`Spiel ${index + 1} hat keinen gültigen Namen.`)
+    }
+    const minPlayers = 'minPlayers' in entry ? entry.minPlayers : null
+    const maxPlayers = 'maxPlayers' in entry ? entry.maxPlayers : null
+    if (
+      (minPlayers !== null && (typeof minPlayers !== 'number' || minPlayers < 1)) ||
+      (maxPlayers !== null && (typeof maxPlayers !== 'number' || maxPlayers < 1))
+    ) {
+      throw new Error(`Spiel „${entry.name}“ hat eine ungültige Spieleranzahl.`)
+    }
+    return {
+      id: crypto.randomUUID(),
+      name: entry.name.trim(),
+      minPlayers,
+      maxPlayers,
+      eliminated: false,
+    }
+  })
+  return games.filter((game) => game.name)
 }
 const playTurnSound = async (context: AudioContext) => {
   if (context.state === 'suspended') await context.resume()
@@ -638,6 +688,8 @@ function Lobby({
   onRemoveParticipant: (participantId: string) => void
   onStart: () => void
 }) {
+  const importInputRef = useRef<HTMLInputElement>(null)
+  const [importMessage, setImportMessage] = useState('')
   const connectedPlayers = state.participants.filter((participant) => participant.connected).length
   const enteredGames = games.filter((game) => game.name.trim())
   const matchingGames = filterGamesByPlayers
@@ -645,6 +697,30 @@ function Lobby({
     : enteredGames
   const updateGame = (id: string, changes: Partial<Game>) => {
     onGamesChange(games.map((game) => (game.id === id ? { ...game, ...changes } : game)))
+  }
+  const importGames = async (file: File) => {
+    try {
+      const imported = parseImportedGames(await file.text())
+      const existingNames = new Set(games.map((game) => game.name.trim().toLocaleLowerCase('de')))
+      const additions = imported.filter((game) => {
+        const normalizedName = game.name.toLocaleLowerCase('de')
+        if (existingNames.has(normalizedName)) return false
+        existingNames.add(normalizedName)
+        return true
+      })
+      onGamesChange([...games, ...additions])
+      setImportMessage(
+        additions.length > 0
+          ? `${additions.length} Spiel${additions.length === 1 ? '' : 'e'} importiert.`
+          : 'Keine neuen Spiele in der Datei gefunden.',
+      )
+    } catch (cause) {
+      setImportMessage(
+        cause instanceof Error ? cause.message : 'Die Datei konnte nicht gelesen werden.',
+      )
+    } finally {
+      if (importInputRef.current) importInputRef.current.value = ''
+    }
   }
   return (
     <section className="lobby">
@@ -739,6 +815,35 @@ function Lobby({
             >
               + Spiel hinzufügen
             </Button>
+            <div className="button-row game-file-actions">
+              <Button
+                type="button"
+                onClick={() => exportGames(games)}
+                disabled={!enteredGames.length}
+              >
+                <ArrowDownToLine size={16} />
+                Liste exportieren
+              </Button>
+              <Button type="button" onClick={() => importInputRef.current?.click()}>
+                <ArrowUpFromLine size={16} />
+                Liste importieren
+              </Button>
+              <input
+                ref={importInputRef}
+                className="visually-hidden"
+                type="file"
+                accept="application/json,.json"
+                onChange={(event) => {
+                  const file = event.target.files?.[0]
+                  if (file) void importGames(file)
+                }}
+              />
+            </div>
+            {importMessage && (
+              <p className="hint" role="status">
+                {importMessage}
+              </p>
+            )}
           </div>
           <p className="hint">
             Spiele ohne Min. oder Max. gelten als für jede Gruppengröße geeignet.

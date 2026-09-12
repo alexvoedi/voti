@@ -9,6 +9,7 @@ Voti is a small mobile multiplayer app for game nights. Players anonymously elim
 - Authoritative host state
 - Notification sounds for your turn and other votes
 - Final majority vote
+- Export and import the game list as a JSON backup
 - Mobile-first interface
 - GitHub Pages deployment
 

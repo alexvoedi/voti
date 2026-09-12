@@ -246,6 +246,26 @@ textarea {
   grid-template-columns: 1fr 1fr;
   gap: 0.75rem;
 }
+
+.game-file-actions {
+  margin-top: 0.25rem;
+}
+
+.game-file-actions button {
+  align-items: center;
+  display: inline-flex;
+  gap: 0.45rem;
+}
+
+.visually-hidden {
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
 .primary {
   border-color: var(--rose-dark);
   color: #fff;
